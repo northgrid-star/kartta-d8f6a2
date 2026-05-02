@@ -407,15 +407,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0d160d}
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-analytics-compat.js"></script>
 <!-- Salattu tunneldata + bootApp -->
 <script src="tunnelDataLoader.js"></script>
-<!-- ES-moduulit: sitoo exportit window._xxxMod -objekteihin -->
-<script type="module">
-  import * as _m from './map.js';
-  import * as _u from './ui.js';
-  import * as _n from './notes.js';
-  window._mapMod   = _m;
-  window._uiMod    = _u;
-  window._notesMod = _n;
-</script>
 <!-- Auth logiikka (compat, ei moduuli) -->
 <script src="auth.js"></script>
 
