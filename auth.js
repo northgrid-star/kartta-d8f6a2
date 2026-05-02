@@ -1,13 +1,11 @@
 /**
  * auth.js – Firebase Auth (email + Google) + AES-GCM tunnel data decryption
- *
- * Käyttää Firebase compat SDK:ta (ei ES-moduuleja).
- * Firebase SDK ladataan index.html:ssä <script>-tageilla ennen tätä tiedostoa.
+ * Käyttää Firebase compat SDK:ta. ENC_DATA ja bootApp ovat window-objektissa
+ * tunnelDataLoader.js:stä.
  */
 
 'use strict';
 
-// ── Firebase config ───────────────────────────────────────────
 const firebaseConfig = {
   apiKey:            'AIzaSyDlGdZY4DgTfcrNP5twiAqRnbHWUxDH4c0',
   authDomain:        'karttasove.firebaseapp.com',
@@ -22,7 +20,7 @@ firebase.initializeApp(firebaseConfig);
 const auth           = firebase.auth();
 const googleProvider = new firebase.auth.GoogleAuthProvider();
 
-// ── AES-GCM tunnel data decryption ────────────────────────────
+// ── AES-GCM decryption ────────────────────────────────────────
 const _APP_SECRET_HASH = '32fbdf9c912950b0666daaaec7a522624bc07298bf9608d32466f7d12fc33000';
 const _KDF_SALT        = 'cGFpamFhbm5ldHVubmVsaTIwMjRzYWx0';
 const _KDF_ITERS       = 100000;
@@ -35,20 +33,15 @@ async function _deriveKey() {
   const imp  = await crypto.subtle.importKey('raw', raw, 'PBKDF2', false, ['deriveKey']);
   _derivedKey = await crypto.subtle.deriveKey(
     { name: 'PBKDF2', salt, iterations: _KDF_ITERS, hash: 'SHA-256' },
-    imp,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['decrypt']
+    imp, { name: 'AES-GCM', length: 256 }, false, ['decrypt']
   );
   return _derivedKey;
 }
 
-async function decryptData(encryptedObj) {
+async function decryptData(encObj) {
   const key = await _deriveKey();
-  const raw  = Uint8Array.from(atob(encryptedObj.data), c => c.charCodeAt(0));
-  const iv   = raw.slice(0, 12);
-  const ct   = raw.slice(12);
-  const dec  = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+  const raw  = Uint8Array.from(atob(encObj.data), c => c.charCodeAt(0));
+  const dec  = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: raw.slice(0,12) }, key, raw.slice(12));
   return new TextDecoder().decode(dec);
 }
 
@@ -69,67 +62,56 @@ function setLoading(on) {
   });
 }
 
-function _fbErrorFi(code) {
-  const map = {
-    'auth/invalid-email':          'Virheellinen sähköpostiosoite.',
-    'auth/user-not-found':         'Käyttäjää ei löydy.',
-    'auth/wrong-password':         'Väärä salasana.',
-    'auth/invalid-credential':     'Väärä sähköposti tai salasana.',
-    'auth/email-already-in-use':   'Sähköposti on jo käytössä.',
-    'auth/weak-password':          'Salasanan tulee olla vähintään 6 merkkiä.',
-    'auth/popup-closed-by-user':   'Kirjautumisikkuna suljettiin.',
-    'auth/popup-blocked':          'Selain esti popup-ikkunan. Salli popupit tälle sivulle.',
-    'auth/network-request-failed': 'Verkkovirhe. Tarkista yhteys.',
-    'auth/too-many-requests':      'Liian monta yritystä. Yritä myöhemmin.',
-    'auth/operation-not-allowed':  'Kirjautumistapa ei ole käytössä. Tarkista Firebase Console.',
+function _fbErr(code) {
+  const m = {
+    'auth/invalid-email':         'Virheellinen sähköpostiosoite.',
+    'auth/user-not-found':        'Käyttäjää ei löydy.',
+    'auth/wrong-password':        'Väärä salasana.',
+    'auth/invalid-credential':    'Väärä sähköposti tai salasana.',
+    'auth/email-already-in-use':  'Sähköposti on jo käytössä.',
+    'auth/weak-password':         'Salasanan tulee olla vähintään 6 merkkiä.',
+    'auth/popup-closed-by-user':  'Kirjautumisikkuna suljettiin.',
+    'auth/popup-blocked':         'Selain esti popup-ikkunan.',
+    'auth/network-request-failed':'Verkkovirhe.',
+    'auth/too-many-requests':     'Liian monta yritystä.',
+    'auth/operation-not-allowed': 'Kirjautumistapa ei ole käytössä.',
   };
-  return map[code] || ('Virhe: ' + code);
+  return m[code] || ('Virhe: ' + code);
 }
 
-// ── Boot app after successful auth ───────────────────────────
-async function _waitForModules(maxMs) {
-  const start = Date.now();
-  while (!window._mapMod || !window._uiMod || !window._notesMod) {
-    if (Date.now() - start > maxMs) throw new Error('Moduulit eivät latautuneet ajoissa');
-    await new Promise(r => setTimeout(r, 50));
-  }
-}
-
+// ── Boot after auth ───────────────────────────────────────────
 async function _bootAfterAuth(user) {
-  const nameEl   = document.getElementById('user-badge-name');
-  const avatarEl = document.getElementById('user-badge-avatar');
-  const emailEl  = document.getElementById('um-email');
-
+  // Päivitä user badge
   const displayName = user.displayName || (user.email ? user.email.split('@')[0] : 'Käyttäjä');
+  const nameEl  = document.getElementById('user-badge-name');
+  const avEl    = document.getElementById('user-badge-avatar');
+  const emailEl = document.getElementById('um-email');
   if (nameEl)  nameEl.textContent  = displayName;
   if (emailEl) emailEl.textContent = user.email || '';
-  if (avatarEl) {
+  if (avEl) {
     if (user.photoURL) {
-      avatarEl.innerHTML = '<img src="' + user.photoURL + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">';
+      avEl.innerHTML = '<img src="' + user.photoURL + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">';
     } else {
-      avatarEl.textContent = (displayName[0] || '?').toUpperCase();
+      avEl.textContent = (displayName[0] || '?').toUpperCase();
     }
   }
 
+  // Piilota login, näytä app
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('app').style.display = 'block';
 
+  // Pura tunneldata ja käynnistä sovellus
   try {
-    await _waitForModules(10000);
     const plaintext  = await decryptData(window.ENC_DATA);
     const tunnelData = JSON.parse(plaintext);
-    if (typeof window.bootApp === 'function') {
-      window.bootApp(tunnelData, user);
-    } else {
-      console.error('window.bootApp ei ole määritelty – tarkista tunnelDataLoader.js');
-    }
+    window.bootApp(tunnelData, user);
   } catch (e) {
-    console.error('Tunnelitietojen purku epäonnistui:', e);
-    alert('Tunnelitietojen purku epäonnistui: ' + e.message);
+    console.error('Boot epäonnistui:', e);
+    alert('Sovelluksen käynnistys epäonnistui: ' + e.message);
   }
 }
 
-// ── Auth state observer ───────────────────────────────────────
+// ── Auth state ────────────────────────────────────────────────
 auth.onAuthStateChanged(user => {
   if (user) _bootAfterAuth(user);
 });
@@ -144,12 +126,12 @@ async function doEmailLogin() {
   try {
     await auth.signInWithEmailAndPassword(email, pw);
   } catch (e) {
-    setError(_fbErrorFi(e.code));
+    setError(_fbErr(e.code));
     setLoading(false);
   }
 }
 
-// ── Email register ────────────────────────────────────────────
+// ── Register ──────────────────────────────────────────────────
 async function doRegister() {
   const email = document.getElementById('reg-email-input').value.trim();
   const pw    = document.getElementById('reg-pw-input').value;
@@ -157,24 +139,24 @@ async function doRegister() {
   setError('');
   if (!email || !pw) { setError('Täytä kaikki kentät.'); return; }
   if (pw !== pw2)    { setError('Salasanat eivät täsmää.'); return; }
-  if (pw.length < 6) { setError('Salasanan tulee olla vähintään 6 merkkiä.'); return; }
+  if (pw.length < 6) { setError('Salasana vähintään 6 merkkiä.'); return; }
   setLoading(true);
   try {
     await auth.createUserWithEmailAndPassword(email, pw);
   } catch (e) {
-    setError(_fbErrorFi(e.code));
+    setError(_fbErr(e.code));
     setLoading(false);
   }
 }
 
-// ── Google auth ───────────────────────────────────────────────
+// ── Google ────────────────────────────────────────────────────
 async function doGoogleAuth() {
   setError('');
   setLoading(true);
   try {
     await auth.signInWithPopup(googleProvider);
   } catch (e) {
-    setError(_fbErrorFi(e.code));
+    setError(_fbErr(e.code));
     setLoading(false);
   }
 }
@@ -186,9 +168,9 @@ async function doForgotPassword() {
   setLoading(true);
   try {
     await auth.sendPasswordResetEmail(email);
-    setSuccess('Salasanan palautuslinkki lähetetty sähköpostiisi.');
+    setSuccess('Palautuslinkki lähetetty sähköpostiisi.');
   } catch (e) {
-    setError(_fbErrorFi(e.code));
+    setError(_fbErr(e.code));
   } finally {
     setLoading(false);
   }
@@ -196,13 +178,10 @@ async function doForgotPassword() {
 
 // ── Sign out ──────────────────────────────────────────────────
 async function doSignOut() {
-  try {
-    await auth.signOut();
-    window.location.reload();
-  } catch (e) {
-    console.error('Uloskirjautuminen epäonnistui:', e);
-  }
+  await auth.signOut();
+  window.location.reload();
 }
+window._doSignOut = doSignOut;
 
 // ── Wire events ───────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -216,21 +195,24 @@ document.addEventListener('DOMContentLoaded', () => {
     ?.addEventListener('click', doGoogleAuth);
   document.getElementById('forgot-pw-btn')
     ?.addEventListener('click', doForgotPassword);
-
   document.getElementById('pw-input')
     ?.addEventListener('keydown', e => { if (e.key === 'Enter') doEmailLogin(); });
   document.getElementById('reg-pw2-input')
     ?.addEventListener('keydown', e => { if (e.key === 'Enter') doRegister(); });
-
-  document.getElementById('user-badge')
-    ?.addEventListener('click', e => {
-      e.stopPropagation();
-      document.getElementById('user-menu').classList.toggle('open');
+  document.getElementById('tab-login-btn')
+    ?.addEventListener('click', () => {
+      document.getElementById('login-panel').style.display   = 'block';
+      document.getElementById('register-panel').style.display = 'none';
+      document.getElementById('tab-login-btn').classList.add('active');
+      document.getElementById('tab-register-btn').classList.remove('active');
+      setError(''); setSuccess('');
     });
-  document.getElementById('um-logout')
-    ?.addEventListener('click', doSignOut);
-
-  document.addEventListener('click', () => {
-    document.getElementById('user-menu')?.classList.remove('open');
-  });
+  document.getElementById('tab-register-btn')
+    ?.addEventListener('click', () => {
+      document.getElementById('login-panel').style.display   = 'none';
+      document.getElementById('register-panel').style.display = 'block';
+      document.getElementById('tab-login-btn').classList.remove('active');
+      document.getElementById('tab-register-btn').classList.add('active');
+      setError(''); setSuccess('');
+    });
 });
