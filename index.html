@@ -410,25 +410,5 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0d160d}
 <!-- Auth logiikka (compat, ei moduuli) -->
 <script src="auth.js"></script>
 
-
-<script>
-// ── Auth tab switching ────────────────────────────────────────
-document.getElementById('tab-login-btn').addEventListener('click', () => {
-  document.getElementById('login-panel').style.display   = 'block';
-  document.getElementById('register-panel').style.display = 'none';
-  document.getElementById('tab-login-btn').classList.add('active');
-  document.getElementById('tab-register-btn').classList.remove('active');
-  document.getElementById('login-error').textContent   = '';
-  document.getElementById('login-success').textContent = '';
-});
-document.getElementById('tab-register-btn').addEventListener('click', () => {
-  document.getElementById('login-panel').style.display   = 'none';
-  document.getElementById('register-panel').style.display = 'block';
-  document.getElementById('tab-login-btn').classList.remove('active');
-  document.getElementById('tab-register-btn').classList.add('active');
-  document.getElementById('login-error').textContent   = '';
-  document.getElementById('login-success').textContent = '';
-});
-</script>
 </body>
 </html>
